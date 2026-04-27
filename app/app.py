@@ -1,96 +1,123 @@
+from app.menu import Menu
+from config.settings import FILE_PATH, HAM_LABEL, SPAM_LABEL
 from data.loader import DataLoader
 from eda.analyzer import EDAAnalyzer
 from preprocessing.text_processor import TextProcessor
-from app.menu import Menu
-from config.settings import FILE_PATH
 
 
 class MainApp:
 
-    def __init__(self):
-        self.df_original = None
-        self.df_processed = None
-        self.eda = None
-        self.processor = None
-        self.using_processed = False
+    EXIT_OPTION = "0"
+    DATASET_ORIGINAL = "original"
+    DATASET_PROCESSED = "preprocesado"
 
-    def run(self):
+    def __init__(self):
+        self.original_dataset = None
+        self.processed_dataset = None
+        self.analyzer = None
+        self.processor = None
+        self.is_using_processed = False
+
+    def run(self) -> None:
         self._load_data()
         self._init_modules()
         self._menu_loop()
 
-    def _load_data(self):
-        self.df_original = DataLoader.load(FILE_PATH)
+    def _load_data(self) -> None:
+        self.original_dataset = DataLoader.load(FILE_PATH)
         print("Dataset cargado.")
 
-    def _init_modules(self):
-        self.eda = EDAAnalyzer(self.df_original)
-        self.processor = TextProcessor(self.df_original)
+    def _init_modules(self) -> None:
+        self.analyzer = EDAAnalyzer(self.original_dataset)
+        self.processor = TextProcessor(self.original_dataset)
 
-    def _menu_loop(self):
+    def _menu_loop(self) -> None:
         while True:
             Menu.show()
             self._print_active_dataset()
-            option = Menu.get_option()
+            selected_option = Menu.get_option()
 
-            if option == "0":
+            if selected_option == self.EXIT_OPTION:
                 print("Saliendo...")
                 break
 
-            self._handle_option(option)
+            self._handle_option(selected_option)
 
-    def _print_active_dataset(self):
-        label = "preprocesado" if self.using_processed else "original"
-        print(f"[Dataset activo: {label}]")
+    def _print_active_dataset(self) -> None:
+        active_dataset_label = self._active_dataset_label()
+        print(f"[Dataset activo: {active_dataset_label}]")
 
-    def _handle_option(self, option):
-        actions = {
-            "1": lambda: self.eda.show_random_messages(),
-            "2": lambda: self.eda.total_messages(),
-            "3": lambda: self.eda.plot_distribution(),
-            "4": lambda: self.eda.plot_length_density("spam"),
-            "5": lambda: self.eda.plot_length_density("ham"),
-            "6": lambda: self.eda.plot_top_words("spam"),
-            "7": lambda: self.eda.plot_top_words("ham"),
-            "8": lambda: self.eda.plot_wordcloud("spam"),
-            "9": lambda: self.eda.plot_wordcloud("ham"),
+    def _active_dataset_label(self) -> str:
+        if self.is_using_processed:
+            return self.DATASET_PROCESSED
+        return self.DATASET_ORIGINAL
+
+    def _handle_option(self, option: str) -> None:
+        action = self._get_action_for(option)
+        if action is None:
+            print("Opción inválida")
+            return
+        self._execute_action_safely(action)
+
+    def _get_action_for(self, option: str):
+        return self._build_action_map().get(option)
+
+    def _build_action_map(self) -> dict:
+        return {
+            "1": self.analyzer.show_random_messages,
+            "2": self.analyzer.total_messages,
+            "3": self.analyzer.plot_distribution,
+            "4": lambda: self.analyzer.plot_length_density(SPAM_LABEL),
+            "5": lambda: self.analyzer.plot_length_density(HAM_LABEL),
+            "6": lambda: self.analyzer.plot_top_words(SPAM_LABEL),
+            "7": lambda: self.analyzer.plot_top_words(HAM_LABEL),
+            "8": lambda: self.analyzer.plot_wordcloud(SPAM_LABEL),
+            "9": lambda: self.analyzer.plot_wordcloud(HAM_LABEL),
             "10": self._run_preprocessing,
             "11": self._toggle_dataset,
         }
 
-        action = actions.get(option)
+    @staticmethod
+    def _execute_action_safely(action) -> None:
+        try:
+            action()
+        except Exception as error:
+            print(f"Error: {error}")
 
-        if action:
-            try:
-                action()
-            except Exception as e:
-                print(f"Error: {e}")
-        else:
-            print("Opción inválida")
-
-    def _run_preprocessing(self):
-        if self.df_processed is not None:
+    def _run_preprocessing(self) -> None:
+        if self._is_already_preprocessed():
             print("El dataset ya estaba preprocesado. Se mantiene en caché.")
         else:
-            print("Ejecutando preprocesamiento...")
-            self.df_processed = self.processor.process()
-            print("Preprocesamiento aplicado.")
+            self._build_processed_dataset()
 
-        self.using_processed = True
-        self.eda = EDAAnalyzer(self.df_processed)
+        self._switch_to_processed()
         print("Las próximas opciones usarán el dataset transformado.")
 
-    def _toggle_dataset(self):
-        if self.using_processed:
-            self.using_processed = False
-            self.eda = EDAAnalyzer(self.df_original)
+    def _is_already_preprocessed(self) -> bool:
+        return self.processed_dataset is not None
+
+    def _build_processed_dataset(self) -> None:
+        print("Ejecutando preprocesamiento...")
+        self.processed_dataset = self.processor.process()
+        print("Preprocesamiento aplicado.")
+
+    def _toggle_dataset(self) -> None:
+        if self.is_using_processed:
+            self._switch_to_original()
             print("Cambiado a dataset ORIGINAL.")
             return
 
-        if self.df_processed is None:
+        if not self._is_already_preprocessed():
             print("Aún no se ha ejecutado el preprocesamiento (opción 10).")
             return
 
-        self.using_processed = True
-        self.eda = EDAAnalyzer(self.df_processed)
+        self._switch_to_processed()
         print("Cambiado a dataset PREPROCESADO.")
+
+    def _switch_to_original(self) -> None:
+        self.is_using_processed = False
+        self.analyzer = EDAAnalyzer(self.original_dataset)
+
+    def _switch_to_processed(self) -> None:
+        self.is_using_processed = True
+        self.analyzer = EDAAnalyzer(self.processed_dataset)
